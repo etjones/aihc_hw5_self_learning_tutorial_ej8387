@@ -1,0 +1,15 @@
+[project]
+name = "aihc_hw5_self_learning_tutorial_ej8387"
+version = "0.1.0"
+description = "Support Code for UT MSAI's AI In Healthcare class, homework 5, by Evan Jones"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "ipykernel>=6.29.5",
+    "jupyter>=1.1.1",
+    "llm>=0.23",
+    "markdown>=3.7",
+    "matplotlib>=3.10.1",
+    "pandas>=2.2.3",
+    "sqlite-utils>=3.38",
+]
