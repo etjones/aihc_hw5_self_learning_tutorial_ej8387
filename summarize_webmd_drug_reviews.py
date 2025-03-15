@@ -14,6 +14,7 @@ import pandas as pd
 import sqlite_utils
 from sqlite_utils import Database
 import llm
+from datetime import datetime
 
 # type aliases
 WordCount = int
@@ -56,8 +57,14 @@ def extract_drug_info(DB: Database, table_name: str) -> dict[str, list[DrugRevie
 
 
 def fetch_llm_summaries(
-    drug_info: dict[DrugName, list[DrugReview]], model_name: str
+    drug_info: dict[DrugName, list[DrugReview]],
+    model_name: str,
+    db: Database | None = None,
 ) -> dict[DrugName, DrugSummary]:
+    """
+    Fetch summaries for all drugs & reviews, respecting max context windows
+    If db is supplied, fetch/store from the 'drug_summaries' table
+    """
     llm_context_windows = {
         "deepseek-chat": 64_000,
         "gpt-4o-mini": 128_000,
@@ -65,14 +72,58 @@ def fetch_llm_summaries(
     }
     review_summaries: dict[DrugName, DrugSummary] = {}
 
+    table_name = "drug_summaries"
+
     # Because words don't map perfectly to tokens, take a conservative
     # estimate of context window in terms of words
     est_max_words = llm_context_windows[model_name] * 0.6
     for drug, notes in drug_info.items():
-        summary = submit_drug_review_and_join(model_name, drug, notes, est_max_words)
+        summary = fetch_stored_summary(table_name, drug, model_name, db)
+
+        if not summary:
+            summary = submit_drug_review_and_join(
+                model_name, drug, notes, est_max_words
+            )
+            # If we just fetched a summary and have a db, store it (No-op if no DB)
+            store_summary(table_name, drug, model_name, summary, db)
+
         review_summaries[drug] = summary
 
     return review_summaries
+
+
+def fetch_stored_summary(
+    table_name: str, drug: DrugName, model_name: str, db: Database | None = None
+) -> DrugSummary | None:
+    summary = None
+    if db and table_name in db.table_names():
+        existing_summary = list(
+            db[table_name].rows_where("drug = ? AND model = ?", (drug, model_name))
+        )
+        if existing_summary:
+            summary = existing_summary[0]["summary"]
+            print(f"Found {model_name} summary for {drug} in {table_name} table")
+    return summary
+
+
+def store_summary(
+    table_name: str,
+    drug: DrugName,
+    model_name: str,
+    summary: DrugSummary,
+    db: Database | None = None,
+):
+    if db:
+        print(f"Storing {model_name} summary for {drug} in {table_name}")
+        fetch_time = datetime.now()
+        db[table_name].insert(
+            {
+                "drug": drug,
+                "summary": summary,
+                "fetch_time": fetch_time,
+                "model": model_name,
+            },
+        )
 
 
 def submit_drug_review_and_join(
@@ -218,43 +269,15 @@ def create_summary_webapp(
         min-height: 100vh;
     }
     
-    .sidebar {
-        width: 250px;
-        background-color: var(--header-color);
-        padding: 20px;
-        box-sizing: border-box;
+    .sidebar-frame {
         position: fixed;
-        height: 100vh;
+        top: 0;
+        left: 0;
+        width: 250px;
+        height: 100%;
+        border: none;
+        background-color: #f5f5f5;
         overflow-y: auto;
-    }
-    
-    .sidebar h2 {
-        margin-top: 0;
-        padding-bottom: 10px;
-        border-bottom: 1px solid var(--border-color);
-    }
-    
-    .sidebar ul {
-        list-style-type: none;
-        padding: 0;
-    }
-    
-    .sidebar li {
-        margin-bottom: 10px;
-    }
-    
-    .sidebar a {
-        color: var(--link-color);
-        text-decoration: none;
-        display: block;
-        padding: 5px;
-        border-radius: 4px;
-        transition: background-color 0.2s, color 0.2s;
-    }
-    
-    .sidebar a:hover {
-        background-color: rgba(255, 255, 255, 0.1);
-        color: var(--link-hover-color);
     }
     
     .content {
@@ -293,25 +316,55 @@ def create_summary_webapp(
     with open(output_path / "style.css", "w") as f:
         f.write(css_content)
 
-    # Create menu HTML
-    menu_html = """
-    <div class="sidebar">
-        <h2>Drug Summaries</h2>
-        <ul>
-            <li><a href="index.html">Introduction</a></li>
+    # Create separate sidebar HTML file
+    sidebar_html = """<!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Sidebar</title>
+        <link rel="stylesheet" href="style.css">
+        <style>
+            /* Additional styles specific to the sidebar frame */
+            body {
+                margin: 0;
+                padding: 0;
+                overflow-y: auto;
+                height: 100vh;
+                background-color: #f5f5f5;
+            }
+            .sidebar {
+                height: 100%;
+                width: 100%;
+                overflow-y: auto;
+                padding: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="sidebar">
+            <h2>Drug Summaries</h2>
+            <ul>
+                <li><a href="index.html" target="_parent">Introduction</a></li>
     """
 
     # Add links for each drug
     for drug_name in sorted(summaries.keys()):
         file_name = f"{drug_name.lower().replace(' ', '_')}.html"
-        menu_html += f'        <li><a href="{file_name}">{drug_name}</a></li>\n'
+        sidebar_html += f'                <li><a href="{file_name}" target="_parent">{drug_name}</a></li>\n'
 
-    menu_html += """
-        </ul>
-    </div>
+    sidebar_html += """
+            </ul>
+        </div>
+    </body>
+    </html>
     """
 
-    # Create HTML template
+    # Save sidebar to a separate file
+    with open(output_path / "sidebar.html", "w") as f:
+        f.write(sidebar_html)
+
+    # Create HTML template with iframe for sidebar
     html_template = """<!DOCTYPE html>
     <html lang="en">
     <head>
@@ -321,7 +374,7 @@ def create_summary_webapp(
         <link rel="stylesheet" href="style.css">
     </head>
     <body>
-        {menu}
+        <iframe src="sidebar.html" frameborder="0" class="sidebar-frame" title="Navigation Sidebar"></iframe>
         <div class="content">
             {content}
         </div>
@@ -341,7 +394,7 @@ def create_summary_webapp(
     """
 
     index_html = html_template.format(
-        title="WebMD Drug Reviews Summary", menu=menu_html, content=index_content
+        title="WebMD Drug Reviews Summary", content=index_content
     )
 
     with open(output_path / "index.html", "w") as f:
@@ -357,7 +410,6 @@ def create_summary_webapp(
         # Create the full HTML page
         drug_html = html_template.format(
             title=f"{drug_name} - Drug Summary",
-            menu=menu_html,
             content=f"<h1 class='drug-title'>{drug_name}</h1>\n{html_content}",
         )
 
@@ -390,7 +442,7 @@ def main():
     # Note that we're limited by the context windows of our chosen LLM
 
     # Submit all drugs to LLM and get summaries back
-    all_summaries = fetch_llm_summaries(drug_info, model_name)
+    all_summaries = fetch_llm_summaries(drug_info, model_name, db=db)
 
     print_summaries(all_summaries)
 
