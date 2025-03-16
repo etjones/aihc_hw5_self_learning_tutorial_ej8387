@@ -24,15 +24,15 @@ DrugSummary = str
 
 
 def import_csv_to_sqlite_db(csv_path: str, table_name) -> Database:
-    df = pd.read_csv(csv_path)
-    print(f"Data set has {len(df)} rows, with columns: {list(df.columns)}")
-
     # Load/create a database file
     DB = sqlite_utils.Database("psych_med_reviews.sqlite")
 
     # Add to DB if it's not already there
     if table_name not in DB.table_names():
+        df = pd.read_csv(csv_path)
+        print(f"Dataset has {len(df)} rows, with columns: {list(df.columns)}")
         DB[table_name].insert_all(df.to_dict(orient="records"))
+
     print(f"Database table {table_name} has {DB[table_name].count} rows")
     return DB
 
@@ -78,13 +78,16 @@ def fetch_llm_summaries(
     # estimate of context window in terms of words
     est_max_words = llm_context_windows[model_name] * 0.6
     for drug, notes in drug_info.items():
+        # Use a cached response for this drug/model if it's there
         summary = fetch_stored_summary(table_name, drug, model_name, db)
 
+        # If there's no cached response, ask the LLM for a summary,
+        # breaking into several prompts if needed
         if not summary:
             summary = submit_drug_review_and_join(
                 model_name, drug, notes, est_max_words
             )
-            # If we just fetched a summary and have a db, store it (No-op if no DB)
+            # If we just fetched a summary, store it (No-op if no DB supplied)
             store_summary(table_name, drug, model_name, summary, db)
 
         review_summaries[drug] = summary
@@ -197,22 +200,25 @@ def combine_summaries(model_name: str, summaries: list[DrugSummary]) -> DrugSumm
 
 
 def summarization_prompt(drug_name: DrugName) -> str:
-    review_prompt = f"""I'm appending a number of anonymized patient reviews for the 
-    medication {drug_name} below. Please read the reviews and give me a short summary of 
-    patients' feelings about the drug. You might list people's favorite good points,
-    and least-liked elements about the experience. Pay attention to people who have 
-    very strong positive or negative experiences, and include excerpts from those 
-    reviews occasionally if they're very unusual. As an example, please don't include
-    any excerpts about common mild symptoms, but if one user reports life-changing 
-    headaches or amnesia, that's probably worth highlighting. Try to limit your summary
-    to about two hundred words. 
+    review_prompt = f"""I'm appending a number of anonymized patient reviews for 
+    the  medication {drug_name} below. Please read the reviews and give me a 
+    short summary of  patients' feelings about the drug. You might list people's 
+    favorite good points, and least-liked elements about the experience. Pay 
+    attention to people who have  very strong positive or negative experiences, 
+    and include excerpts from those  reviews occasionally if they're very 
+    unusual. As an example, please don't include any excerpts about common mild 
+    symptoms, but if one user reports life-changing  headaches or amnesia, 
+    that's probably worth highlighting. Try to limit your summary to about two 
+    hundred words. 
 
     Return a summary in Markdown format with sections ## Positive, ## Negative, 
-    ## Noteworthy (optional, include only for outlier experiences), and ## Conclusion
+    ## Noteworthy (optional, include only for outlier experiences), and 
+    ## Conclusion
 
     Please don't introduce the summary, just begin right away.
 
-    Reviews follow, and each is bracketed by <review> to start and </review> to end.
+    Reviews follow, and each is bracketed by <review> to start 
+    and </review> to end.
 
 
     """
@@ -247,7 +253,7 @@ def create_summary_webapp(
     if output_path.exists():
         shutil.rmtree(output_path)
     output_path.mkdir(parents=True)
-    
+
     # Create pages subdirectory
     pages_dir = output_path / "pages"
     pages_dir.mkdir(parents=True)
@@ -396,10 +402,10 @@ def create_summary_webapp(
     """
 
     index_html = html_template.format(
-        title="WebMD Drug Reviews Summary", 
+        title="WebMD Drug Reviews Summary",
         content=index_content,
         css_path="style.css",
-        sidebar_path="sidebar.html"
+        sidebar_path="sidebar.html",
     )
 
     with open(output_path / "index.html", "w") as f:
@@ -417,7 +423,7 @@ def create_summary_webapp(
             title=f"{drug_name} - Drug Summary",
             content=f"<h1 class='drug-title'>{drug_name}</h1>\n{html_content}",
             css_path="../style.css",
-            sidebar_path="../sidebar.html"
+            sidebar_path="../sidebar.html",
         )
 
         with open(pages_dir / file_name, "w") as f:
