@@ -247,6 +247,10 @@ def create_summary_webapp(
     if output_path.exists():
         shutil.rmtree(output_path)
     output_path.mkdir(parents=True)
+    
+    # Create pages subdirectory
+    pages_dir = output_path / "pages"
+    pages_dir.mkdir(parents=True)
 
     # Create CSS file
     css_content = """
@@ -329,14 +333,12 @@ def create_summary_webapp(
             body {
                 margin: 0;
                 padding: 0;
-                overflow-y: auto;
                 height: 100vh;
                 background-color: #f5f5f5;
             }
             .sidebar {
                 height: 100%;
                 width: 100%;
-                overflow-y: auto;
                 padding: 10px;
             }
         </style>
@@ -350,7 +352,7 @@ def create_summary_webapp(
 
     # Add links for each drug
     for drug_name in sorted(summaries.keys()):
-        file_name = f"{drug_name.lower().replace(' ', '_')}.html"
+        file_name = f"pages/{drug_name.lower().replace(' ', '_')}.html"
         sidebar_html += f'                <li><a href="{file_name}" target="_parent">{drug_name}</a></li>\n'
 
     sidebar_html += """
@@ -371,10 +373,10 @@ def create_summary_webapp(
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>{title}</title>
-        <link rel="stylesheet" href="style.css">
+        <link rel="stylesheet" href="{css_path}">
     </head>
     <body>
-        <iframe src="sidebar.html" frameborder="0" class="sidebar-frame" title="Navigation Sidebar"></iframe>
+        <iframe src="{sidebar_path}" frameborder="0" class="sidebar-frame" title="Navigation Sidebar"></iframe>
         <div class="content">
             {content}
         </div>
@@ -394,7 +396,10 @@ def create_summary_webapp(
     """
 
     index_html = html_template.format(
-        title="WebMD Drug Reviews Summary", content=index_content
+        title="WebMD Drug Reviews Summary", 
+        content=index_content,
+        css_path="style.css",
+        sidebar_path="sidebar.html"
     )
 
     with open(output_path / "index.html", "w") as f:
@@ -407,13 +412,15 @@ def create_summary_webapp(
         # Convert markdown to HTML
         html_content = markdown.markdown(summary)
 
-        # Create the full HTML page
+        # Create the full HTML page with relative paths for CSS and sidebar
         drug_html = html_template.format(
             title=f"{drug_name} - Drug Summary",
             content=f"<h1 class='drug-title'>{drug_name}</h1>\n{html_content}",
+            css_path="../style.css",
+            sidebar_path="../sidebar.html"
         )
 
-        with open(output_path / file_name, "w") as f:
+        with open(pages_dir / file_name, "w") as f:
             f.write(drug_html)
 
     print(f"Web application created in '{output_dir}' directory")
