@@ -5,6 +5,8 @@ code-language: Python
 ## AI In Healthcare, Homework 5: Self-Learning Tutorial
 ### [Evan Jones](mailto:evan_jones@utexas.edu), UT ID:  `ej8387`
 
+^ View and download code for this project at:
+`https://github.com/etjones/aihc_hw5_self_learning_tutorial_ej8387`
 ---
 
 # 1: Project Overview & Motivation
